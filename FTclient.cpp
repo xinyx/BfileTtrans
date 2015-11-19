@@ -8,15 +8,20 @@
 using namespace std;
 
 #define DEFAULT_IP "127.0.0.1"
-#define DEFAULT_BUFLEN 512
+#define DEFAULT_BUFLEN (8*1024*1024)	//MAX_RECVBUF_LEN==8M
 #define DEFAULT_PORT "27015"
+//#define RECVBUF_LEN (1024*1024)
+
+
 char recvBUF[DEFAULT_BUFLEN];
 
+/*
 int recallSocket(SOCKET socket) {
 	closesocket(socket);
 	WSACleanup();
 	return -1;
 }
+*/
 
 int main() {
 	WSADATA wsadata;
@@ -77,6 +82,7 @@ int main() {
 		}
 	}
 
+	//match a addrinfo
 	for(ptr = result; ptr != NULL; ptr = ptr->ai_next)
 	{
 		// create a socket for client
@@ -116,28 +122,59 @@ int main() {
 	}
 	cout << "connect to " << inet_ntoa(name.sin_addr) << ":" << ntohs(name.sin_port) << endl; 
 
+	//modify recvbuf len
+	int recvbuf_len, intlen = sizeof(recvbuf_len);
+	if (getsockopt(ConnectSocket, SOL_SOCKET, SO_RCVBUF, (char *)&recvbuf_len, &intlen) < 0) {
+		cout << "getsocketopt error\n";
+		closesocket(ConnectSocket);
+		WSACleanup();
+		return -1;
+	}
+	cout << "initial TCP recvbuf_len = " << recvbuf_len << endl;
+	cout << "input TCP recvbuf_len(<= 8M): ";
+	//recvbuf_len = RECVBUF_LEN;
+	cin >> recvbuf_len;
+	if (setsockopt(ConnectSocket, SOL_SOCKET, SO_RCVBUF, (const char *)&recvbuf_len, intlen) < 0) {
+		cout << "setsocketopt error\n";
+		closesocket(ConnectSocket);
+		WSACleanup();
+		return -1;
+	}
+
+	if (getsockopt(ConnectSocket, SOL_SOCKET, SO_RCVBUF, (char *)&recvbuf_len, &intlen) < 0) {
+		cout << "getsocketopt error\n";
+		closesocket(ConnectSocket);
+		WSACleanup();
+		return -1;
+	}
+	cout << "final TCP recvbuf_len = " << recvbuf_len << endl;
+
 	//recv
-	int buflen = DEFAULT_BUFLEN;
+	//int buflen = DEFAULT_BUFLEN;		choice.1
+	//int buflen = recvbuf_len;			choice.2 make process_buflen == TCP_buflen
+	cout << "input process recvbuf_len: ";
+	int buflen;
+	cin >> buflen;						//choice.3 manually assign
+
 	FILE* fp;
 	if ((fp = fopen(filename, "wb")) == NULL) {
 		cout << "open " << filename << " error" << endl;
 		return -1;
 	}
 
+
 	clock_t start, finish;
 	start = clock();
 	while (true) {
-		//cout << "ready to recv" << endl;
 		iResult = recv(ConnectSocket, recvBUF, buflen, 0);
-		//cout << "after recv: " << iResult << endl;
 		if (iResult == 0) {
 			cout << "recv OK" << endl;
 			break;
 		} else if (iResult < 0) {
 			cout << "recv error: " << iResult << endl;
-			recallSocket(ConnectSocket);
-			//closesocket(ConnectSocket);
-			//WSACleanup();
+			//recallSocket(ConnectSocket);
+			closesocket(ConnectSocket);
+			WSACleanup();
 			return -1;
 		}
 		fwrite(recvBUF, sizeof(char), iResult, fp);
@@ -149,15 +186,15 @@ int main() {
 	iResult = shutdown(ConnectSocket, SD_SEND);
 	if (iResult < 0) {
 		cout << "shutdown error: " << iResult << endl;
-		recallSocket(ConnectSocket);
-		//closesocket(ConnectSocket);
-		//WSACleanup();
+		//recallSocket(ConnectSocket);
+		closesocket(ConnectSocket);
+		WSACleanup();
 		return -1;
 	}
 
-	recallSocket(ConnectSocket);
-	//closesocket(ConnectSocket);
-	//WSACleanup();
+	//recallSocket(ConnectSocket);
+	closesocket(ConnectSocket);
+	WSACleanup();
 	system("PAUSE");
 	return 0;
 }

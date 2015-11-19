@@ -7,16 +7,21 @@
 #pragma  comment (lib, "Ws2_32.lib")
 using namespace std;
 
-#define DEFAULT_BUFLEN 512
+#define DEFAULT_BUFLEN (8*1024*1024)	//MAX_SNDBUF_LEN==8M
 #define DEFAULT_IP NULL
 #define DEFAULT_PORT "27015"
+//#define SNDBUF_LEN (1024*1024)
+
+
 char sendBUF[DEFAULT_BUFLEN];
 
+/*
 int recallSocket(SOCKET socket) {
 	closesocket(socket);
 	WSACleanup();
 	return -1;
 }
+*/
 
 int main() {
 	WSADATA wsadata;
@@ -60,9 +65,9 @@ int main() {
 	if (iResult != 0) {
 		cout << "bind error: " << iResult << " " << WSAGetLastError() << endl;
 		freeaddrinfo(result);
-		recallSocket(ListenSocket);
-		//closesocket(ListenSocket);
-		//WSACleanup();
+		//recallSocket(ListenSocket);
+		closesocket(ListenSocket);
+		WSACleanup();
 		return -1;
 	}
 	
@@ -72,9 +77,9 @@ int main() {
 	iResult = listen(ListenSocket, SOMAXCONN);
 	if (iResult != 0) {
 		cout << "listen error: " << WSAGetLastError() << endl;
-		recallSocket(ListenSocket);
-		//closesocket(ListenSocket);
-		//WSACleanup();
+		//recallSocket(ListenSocket);
+		closesocket(ListenSocket);
+		WSACleanup();
 		return -1;
 	}
 
@@ -100,9 +105,9 @@ int main() {
 	ClientSocket = accept(ListenSocket, NULL, NULL);
 	if (ClientSocket == INVALID_SOCKET) {
 		cout << "accept error: " << WSAGetLastError() << endl;
-		recallSocket(ListenSocket);
-		//closesocket(ListenSocket);
-		//WSACleanup();
+		//recallSocket(ListenSocket);
+		closesocket(ListenSocket);
+		WSACleanup();
 		return -1;
 	}
 	
@@ -114,10 +119,44 @@ int main() {
 		return -1;
 	}
 	cout << "recv a connection from " << inet_ntoa(name.sin_addr) << ":" <<  ntohs(name.sin_port) << endl; 
+
+	//ListenSocket not needed
 	closesocket(ListenSocket);
 
+	//modify sndbuf len
+	int sndbuf_len, intlen = sizeof(sndbuf_len);
+	if (getsockopt(ClientSocket, SOL_SOCKET, SO_SNDBUF, (char *)&sndbuf_len, &intlen) < 0) {
+		cout << "getsocketopt error\n";
+		closesocket(ClientSocket);
+		WSACleanup();
+		return -1;
+	}
+	cout << "initial TCP sndbuf_len = " << sndbuf_len << endl;
+	cout << "input TCP sndbuf_len(<=8M): ";
+	//sndbuf_len = SNDBUF_LEN;
+	cin >> sndbuf_len;
+	if (setsockopt(ClientSocket, SOL_SOCKET, SO_SNDBUF, (const char *)&sndbuf_len, intlen) < 0) {
+		cout << "setsocketopt error\n";
+		closesocket(ClientSocket);
+		WSACleanup();
+		return -1;
+	}
+
+	if (getsockopt(ClientSocket, SOL_SOCKET, SO_SNDBUF, (char *)&sndbuf_len, &intlen) < 0) {
+		cout << "getsocketopt error\n";
+		closesocket(ClientSocket);
+		WSACleanup();
+		return -1;
+	}
+	cout << "final TCP sndbuf_len = " << sndbuf_len << endl;
+	
+
 	//send file
-	int buflen = DEFAULT_BUFLEN;
+	//int buflen = DEFAULT_BUFLEN;	choice.1
+	//int buflen = sndbuf_len;		choice.2 make process_buflen == TCP_buflen
+	cout << "input process sndbuf_len: ";
+	int buflen;
+	cin >> buflen;					//choice.3 manually assign
 	int len;
 	clock_t start, finish;
 	start = clock();
@@ -127,9 +166,9 @@ int main() {
 		iResult = send(ClientSocket, sendBUF, len, 0);
 		if (iResult < 0) {
 			cout << "file send error: " << WSAGetLastError() << endl;
-			recallSocket(ClientSocket);
-			//closesocket(ClientSocket);
-			//WSACleanup();
+			//recallSocket(ClientSocket);
+			closesocket(ClientSocket);
+			WSACleanup();
 			return -1;
 		}
 	} while (!feof(fp));
@@ -137,20 +176,20 @@ int main() {
 	finish = clock();
 	cout << "send time: " << (double)(finish-start) << "ms" << endl;
 
-	//close connection
+	//don't send, only recv
 	iResult = shutdown(ClientSocket, SD_SEND);
 	if (iResult < 0) {
 		cout << "shutdown socket error: " << WSAGetLastError() << endl;
-		recallSocket(ClientSocket);
-		//closesocket(ClientSocket);
-		//WSACleanup();
+		//recallSocket(ClientSocket);
+		closesocket(ClientSocket);
+		WSACleanup();
 		return -1;
 	}
 
-	recallSocket(ClientSocket);
-	//closesocket(ClientSocket);
-	//closesocket(ListenSocket);
-	//WSACleanup();
+	//close socket
+	//recallSocket(ClientSocket);
+	closesocket(ClientSocket);
+	WSACleanup();
 
 	system("PAUSE");
 	return 0;
