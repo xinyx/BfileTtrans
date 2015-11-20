@@ -32,7 +32,7 @@ int main() {
 	//init winsock
 	iResult = WSAStartup(MAKEWORD(2,2), &wsadata);
 	if (iResult < 0) {
-		cout << "init winsock error: " << iResult << endl;
+		cout << "init winsock error: " << WSAGetLastError() << endl;
 		return -1;
 	}
 
@@ -44,7 +44,7 @@ int main() {
 	//analyze client address
 	iResult = getaddrinfo(DEFAULT_IP, DEFAULT_PORT, &hints, &result);
 	if (iResult < 0) {
-		cout << "getaddrinfo error: " << iResult << endl;
+		cout << "getaddrinfo error: " << WSAGetLastError() << endl;
 		WSACleanup();
 		return -1;
 	}
@@ -117,7 +117,7 @@ int main() {
 	int namelen = sizeof(name);
 	iResult = getpeername(ConnectSocket, (sockaddr*)&name, &namelen);
 	if (iResult < 0) {
-		cout << "getpeername error: " << iResult << endl;
+		cout << "getpeername error: " << WSAGetLastError() << endl;
 		return -1;
 	}
 	cout << "connect to " << inet_ntoa(name.sin_addr) << ":" << ntohs(name.sin_port) << endl; 
@@ -164,14 +164,17 @@ int main() {
 
 
 	clock_t start, finish;
+	int count = 0;
 	start = clock();
 	while (true) {
 		iResult = recv(ConnectSocket, recvBUF, buflen, 0);
+		//count ++;
+		//cout << "count " << count << " : " << iResult << endl;
 		if (iResult == 0) {
 			cout << "recv OK" << endl;
 			break;
 		} else if (iResult < 0) {
-			cout << "recv error: " << iResult << endl;
+			cout << "recv error: " << WSAGetLastError() << endl;
 			//recallSocket(ConnectSocket);
 			closesocket(ConnectSocket);
 			WSACleanup();
@@ -185,7 +188,7 @@ int main() {
 
 	iResult = shutdown(ConnectSocket, SD_SEND);
 	if (iResult < 0) {
-		cout << "shutdown error: " << iResult << endl;
+		cout << "shutdown error: " << WSAGetLastError() << endl;
 		//recallSocket(ConnectSocket);
 		closesocket(ConnectSocket);
 		WSACleanup();

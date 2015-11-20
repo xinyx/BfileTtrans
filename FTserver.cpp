@@ -34,7 +34,7 @@ int main() {
 	//init winsock
 	iResult = WSAStartup(MAKEWORD(2,2), &wsadata);
 	if (iResult != 0) {
-		cout << "init winsock error: " << iResult << endl;
+		cout << "init winsock error: " << WSAGetLastError() << endl;
 		return -1;
 	}
 	ZeroMemory(&hints, sizeof(hints));
@@ -46,7 +46,7 @@ int main() {
 	//analyse server address
 	iResult = getaddrinfo(DEFAULT_IP, DEFAULT_PORT, &hints, &result);
 	if (iResult != 0) {
-		cout << "getaddrinfo error: " << iResult << endl;
+		cout << "getaddrinfo error: " << WSAGetLastError() << endl;
 		WSACleanup();
 		return -1;
 	}
@@ -115,7 +115,7 @@ int main() {
 	int namelen = sizeof(name);
 	iResult = getpeername(ClientSocket, (sockaddr*)&name, &namelen);
 	if (iResult < 0) {
-		cout << "getpeername error: " << iResult << endl;
+		cout << "getpeername error: " << WSAGetLastError() << endl;
 		return -1;
 	}
 	cout << "recv a connection from " << inet_ntoa(name.sin_addr) << ":" <<  ntohs(name.sin_port) << endl; 
@@ -159,11 +159,14 @@ int main() {
 	cin >> buflen;					//choice.3 manually assign
 	int len;
 	clock_t start, finish;
+	int count = 0;
 	start = clock();
 	do {
 		len = fread(sendBUF, sizeof(char), buflen, fp);
 		//cout << sendBUF << endl;
 		iResult = send(ClientSocket, sendBUF, len, 0);
+		//count ++;
+		//cout << "count " << count << " : " << iResult << endl;
 		if (iResult < 0) {
 			cout << "file send error: " << WSAGetLastError() << endl;
 			//recallSocket(ClientSocket);
