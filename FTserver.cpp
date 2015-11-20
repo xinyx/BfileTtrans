@@ -31,7 +31,9 @@ int main() {
 	struct addrinfo *result = NULL;
 	struct addrinfo hints;
 
-	//init winsock
+	/**
+	  *init winsock
+	  */
 	iResult = WSAStartup(MAKEWORD(2,2), &wsadata);
 	if (iResult != 0) {
 		cout << "init winsock error: " << WSAGetLastError() << endl;
@@ -43,7 +45,9 @@ int main() {
 	hints.ai_protocol = IPPROTO_TCP;
 	hints.ai_flags = AI_PASSIVE;
 
-	//analyse server address
+	/**
+	  *analyse server address
+	  */
 	iResult = getaddrinfo(DEFAULT_IP, DEFAULT_PORT, &hints, &result);
 	if (iResult != 0) {
 		cout << "getaddrinfo error: " << WSAGetLastError() << endl;
@@ -51,7 +55,9 @@ int main() {
 		return -1;
 	}
 
-	//create listen socket
+	/**
+	  *create listen socket
+	  */
 	ListenSocket = socket(result->ai_family, result->ai_socktype, result->ai_protocol);
 	if (ListenSocket == INVALID_SOCKET) {
 		cout << "create listen socket error: " << endl;
@@ -60,7 +66,9 @@ int main() {
 		return -1;
 	}
 
-	//bind
+	/**
+	  *bind
+	  */
 	iResult =  bind(ListenSocket, result->ai_addr, (int)(result->ai_addrlen));
 	if (iResult != 0) {
 		cout << "bind error: " << iResult << " " << WSAGetLastError() << endl;
@@ -73,7 +81,9 @@ int main() {
 	
 	freeaddrinfo(result);
 
-	//listen
+	/**
+	  *listen
+	  */
 	iResult = listen(ListenSocket, SOMAXCONN);
 	if (iResult != 0) {
 		cout << "listen error: " << WSAGetLastError() << endl;
@@ -83,7 +93,9 @@ int main() {
 		return -1;
 	}
 
-	//open file
+	/**
+	  *open file
+	  */
 	char filename[512] = {0};
 	while (true) {
 		cout << "file name:" ;
@@ -101,7 +113,9 @@ int main() {
 		return -1;
 	}
 	
-	//accept
+	/**
+	  *accept
+	  */
 	ClientSocket = accept(ListenSocket, NULL, NULL);
 	if (ClientSocket == INVALID_SOCKET) {
 		cout << "accept error: " << WSAGetLastError() << endl;
@@ -123,7 +137,9 @@ int main() {
 	//ListenSocket not needed
 	closesocket(ListenSocket);
 
-	//modify sndbuf len
+	/**
+	  *modify sndbuf len
+	  */
 	int sndbuf_len, intlen = sizeof(sndbuf_len);
 	if (getsockopt(ClientSocket, SOL_SOCKET, SO_SNDBUF, (char *)&sndbuf_len, &intlen) < 0) {
 		cout << "getsocketopt error\n";
@@ -151,7 +167,26 @@ int main() {
 	cout << "final TCP sndbuf_len = " << sndbuf_len << endl;
 	
 
-	//send file
+	/**
+	  * NODELAY(don't use Nagle)
+	  * Because client have no data to send, so Nagle is useless and time-consuming
+	  */
+	cout << "use Nagle?(y/n): " << endl;
+	char tmp;
+	cin >> tmp;
+	if (tmp == 'n') {
+		int on = 1, lenon = sizeof(on);
+		if (setsockopt(ClientSocket, IPPROTO_TCP, TCP_NODELAY, (const char*)&on, lenon) < 0) {
+			cout << "setsocketopt(NODELAY) error" << endl;
+			closesocket(ClientSocket);
+			WSACleanup();
+			return -1;
+
+		}
+	}
+	/**
+	  *send file
+	  */
 	//int buflen = DEFAULT_BUFLEN;	choice.1
 	//int buflen = sndbuf_len;		choice.2 make process_buflen == TCP_buflen
 	cout << "input process sndbuf_len: ";
@@ -179,7 +214,9 @@ int main() {
 	finish = clock();
 	cout << "send time: " << (double)(finish-start) << "ms" << endl;
 
-	//don't send, only recv
+	/**
+	  *don't send, only recv
+	  */
 	iResult = shutdown(ClientSocket, SD_SEND);
 	if (iResult < 0) {
 		cout << "shutdown socket error: " << WSAGetLastError() << endl;
@@ -187,6 +224,18 @@ int main() {
 		closesocket(ClientSocket);
 		WSACleanup();
 		return -1;
+	}
+
+	/**
+	  *wait the ack of the last packet, make sure all of data is done.
+	  */
+	iResult = recv(ClientSocket, sendBUF, len, 0);
+	if (iResult == 0) {
+		cout << "the file has reached completely!" << endl;
+	} else if (iResult > 0) {
+		cout << "this will not occur!" << endl;
+	} else {
+		cout << "the last packet has not reached!" << endl;
 	}
 
 	//close socket

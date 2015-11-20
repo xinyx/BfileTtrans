@@ -29,7 +29,9 @@ int main() {
 	struct addrinfo *result = NULL, *ptr = NULL, hints;
 	int iResult;
 
-	//init winsock
+	/**
+	  *init winsock
+	  */
 	iResult = WSAStartup(MAKEWORD(2,2), &wsadata);
 	if (iResult < 0) {
 		cout << "init winsock error: " << WSAGetLastError() << endl;
@@ -41,7 +43,9 @@ int main() {
 	hints.ai_socktype = SOCK_STREAM;
 	hints.ai_protocol = IPPROTO_TCP;
 
-	//analyze client address
+	/**
+	  *analyze client address
+	  */
 	iResult = getaddrinfo(DEFAULT_IP, DEFAULT_PORT, &hints, &result);
 	if (iResult < 0) {
 		cout << "getaddrinfo error: " << WSAGetLastError() << endl;
@@ -70,7 +74,9 @@ int main() {
 	freeaddrinfo(result);
 	*/
 
-	//file to recv
+	/**
+	  *file to recv
+	  */
 	char filename[512] = {0};
 	while (true) {
 		cout << "name of file to recv:" ;
@@ -82,7 +88,9 @@ int main() {
 		}
 	}
 
-	//match a addrinfo
+	/**
+	  *match a addrinfo
+	  */
 	for(ptr = result; ptr != NULL; ptr = ptr->ai_next)
 	{
 		// create a socket for client
@@ -122,7 +130,9 @@ int main() {
 	}
 	cout << "connect to " << inet_ntoa(name.sin_addr) << ":" << ntohs(name.sin_port) << endl; 
 
-	//modify recvbuf len
+	/**
+	  *modify recvbuf len
+	  */
 	int recvbuf_len, intlen = sizeof(recvbuf_len);
 	if (getsockopt(ConnectSocket, SOL_SOCKET, SO_RCVBUF, (char *)&recvbuf_len, &intlen) < 0) {
 		cout << "getsocketopt error\n";
@@ -149,7 +159,28 @@ int main() {
 	}
 	cout << "final TCP recvbuf_len = " << recvbuf_len << endl;
 
-	//recv
+	/**
+	  * NODELAY(don't use Nagle)
+	  * Because client have no data to send, so Nagle is useless and time-consuming
+	  */
+	cout << "use Nagle?(y/n): " << endl;
+	char tmp;
+	cin >> tmp;
+	if (tmp == 'n') {
+		int on = 1, lenon = sizeof(on);
+		if (setsockopt(ConnectSocket, IPPROTO_TCP, TCP_NODELAY, (const char*)&on, lenon) < 0) {
+			cout << "setsocketopt(NODELAY) error" << endl;
+			closesocket(ConnectSocket);
+			WSACleanup();
+			return -1;
+		}
+	}
+
+	
+
+	/**
+	  *recv
+	  */
 	//int buflen = DEFAULT_BUFLEN;		choice.1
 	//int buflen = recvbuf_len;			choice.2 make process_buflen == TCP_buflen
 	cout << "input process recvbuf_len: ";
@@ -186,6 +217,9 @@ int main() {
 	finish = clock();
 	cout << "recv time: " << (double)(finish-start) << "ms" << endl;
 
+	/**
+	  *don't send, only recv
+	  */
 	iResult = shutdown(ConnectSocket, SD_SEND);
 	if (iResult < 0) {
 		cout << "shutdown error: " << WSAGetLastError() << endl;
