@@ -23,7 +23,8 @@ struct LpParam {	//RecvThreadFunc param struct
 	int buflen;		//process recvbuf_len
 	int recvbuf_len;//TCP recvbuf_len
 	char useNagle;
-
+	//long long offset;
+	//long long recvlen;
 };
 
 DWORD WINAPI RecvThreadFunc(LPWORD lpParam) {
@@ -88,6 +89,19 @@ DWORD WINAPI RecvThreadFunc(LPWORD lpParam) {
 	clock_t start, finish;
 	int count = 0;
 	start = clock();
+	
+	//first recv offset
+	long long offset;
+	int longlonglen = sizeof(long long);
+	iResult = recv(ConnectSocket, (char *)&offset, longlonglen, 0);
+	if (iResult < 0) {
+		cout << "thread " << threadid << " recv offset error: " << WSAGetLastError() << endl;
+		closesocket(ConnectSocket);
+		return -1;
+	}
+
+	cout << "thread " << threadid << " recv offset = " << offset << endl;
+	_fseeki64(fp, offset, SEEK_SET);
 	while (true) {
 		iResult = recv(ConnectSocket, recvBUF, buflen, 0);
 		//count ++;
@@ -104,7 +118,7 @@ DWORD WINAPI RecvThreadFunc(LPWORD lpParam) {
 		}
 		fwrite(recvBUF, sizeof(char), iResult, fp);
 	}
-	//fclose(fp);
+	fclose(fp);
 	finish = clock();
 	cout << "thread " << threadid << " recv time: " << (double)(finish-start) << "ms" << endl;
 
@@ -271,11 +285,6 @@ int main() {
 	int buflen;
 	cin >> buflen;						//choice.3 manually assign
 
-	FILE* fp;
-	if ((fp = fopen(filename, "wb")) == NULL) {
-		cout << "open " << filename << " error" << endl;
-		return -1;
-	}
 
 	/*
 	clock_t start, finish;
@@ -366,6 +375,13 @@ int main() {
 			begin = clock();
 		}
 		
+
+		FILE* fp;
+		if ((fp = fopen(filename, "wb")) == NULL) {
+			cout << "open " << filename << " error" << endl;
+			return -1;
+		}
+		cout << "fp = " << fp << endl;
 		lpParam[i-1].threadid = i;
 		lpParam[i-1].fp = fp;
 		lpParam[i-1].ConnectSocket = ConnectSocket;
@@ -378,10 +394,10 @@ int main() {
 
 	WaitForMultipleObjects(ThreadNum, rThread, TRUE, INFINITE);
 	finish = clock();
-	cout << "FILE RECV TIME: " << (double)(finish-begin) << endl;
+	cout << "FILE RECV TIME: " << (double)(finish-begin) << "ms" << endl;
 
 	freeaddrinfo(result);
-	fclose(fp);
+	//fclose(fp);
 	delete [] rThread;
 	delete [] lpParam;
 

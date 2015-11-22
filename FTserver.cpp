@@ -4,6 +4,7 @@
 #include <WS2tcpip.h>
 #include <stdlib.h>
 #include <time.h>
+#include <sys/stat.h>
 
 #pragma  comment (lib, "Ws2_32.lib")
 using namespace std;
@@ -24,7 +25,40 @@ struct LpParam {	//SendThreadFunc param struct
 	int buflen;		//process sndbuf_len
 	int sndbuf_len;	//TCP sndbuf_len
 	char useNagle;
+	long long offset;
+	long long sendlen;
 };
+
+long long getFileSize(const char* path) {
+	long long filesize = -1;      
+	FILE * tmp = fopen(path, "r");
+	if (tmp == NULL) {
+		cout << "open error" << endl;
+		return filesize;
+	}
+	_fseeki64(tmp, (long long)0, SEEK_END);
+	filesize = _ftelli64(tmp);
+	fclose(tmp);
+	/*int handle = open(path, 0x0100);
+	filesize = filelength(handle);
+	*/
+	/*
+    struct stat statbuff;  
+    if(stat(path, &statbuff) < 0){  
+        return filesize;  
+    }else{  
+        filesize = statbuff.st_size;  
+    } 
+	*/
+	/*
+	HANDLE handle = CreateFile(path, FILE_READ_EA, FILE_SHARE_READ, 0, OPEN_EXISTING, 0, 0);
+	if (handle != INVALID_HANDLE_VALUE)
+    {
+        filesize = GetFileSize(handle, NULL);
+        CloseHandle(handle);
+    }*/
+    return filesize; 
+}
 
 DWORD WINAPI SendThreadFunc(LPWORD lpParam) {
 	SOCKET ClientSocket = ((LpParam*)lpParam)->ClientSocket;
@@ -33,11 +67,13 @@ DWORD WINAPI SendThreadFunc(LPWORD lpParam) {
 	int sndbuf_len = ((LpParam*)lpParam)->sndbuf_len;
 	int buflen = ((LpParam*)lpParam)->buflen;
 	int useNagle = ((LpParam*)lpParam)->useNagle;
+	long long sendlen = ((LpParam*)lpParam)->sendlen;
+	long long offset = ((LpParam*)lpParam)->offset;
 
 	//cout << "thread " << threadid << " ClientSocket = " << (int)ClientSocket << endl;
 	//cout << "thread " << sndbuf_len << endl;
 
-	int iResult;
+	long long iResult;
 	struct sockaddr_in name;
 	int namelen = sizeof(name);
 	iResult = getpeername(ClientSocket, (sockaddr*)&name, &namelen);
@@ -88,11 +124,26 @@ DWORD WINAPI SendThreadFunc(LPWORD lpParam) {
 	//int buflen = DEFAULT_BUFLEN;	choice.1
 	//int buflen = sndbuf_len;		choice.2 make process_buflen == TCP_buflen
 	//choice.3 manually assign
+
+	_fseeki64(fp, offset, SEEK_SET);
 	int len;
 	clock_t start, finish;
 	int count = 0;
+	long long dataNotSend = sendlen;
 	start = clock();
-	do {
+	
+	//first send offset
+	iResult = send(ClientSocket, (const char *)&offset, sizeof(long long), 0);
+	if (iResult < 0) {
+		cout << "thread " << threadid << " file send offset error: " << WSAGetLastError() << endl;
+		closesocket(ClientSocket);
+		return -1;
+	}
+	
+	cout << "send offset = " << (long long)offset << endl;
+
+	//send file body
+	while ((!feof(fp)) && (dataNotSend>=buflen)){
 		len = fread(sendBUF, sizeof(char), buflen, fp);
 		//cout << sendBUF << endl;
 		iResult = send(ClientSocket, sendBUF, len, 0);
@@ -104,8 +155,22 @@ DWORD WINAPI SendThreadFunc(LPWORD lpParam) {
 			closesocket(ClientSocket);
 			return -1;
 		}
-	} while (!feof(fp));
-	//fclose(fp);
+
+		dataNotSend -= len;
+	} 
+	if (dataNotSend > 0) {
+		len = fread(sendBUF, sizeof(char), dataNotSend, fp);
+		iResult = send(ClientSocket, sendBUF, len, 0);
+		//count ++;
+		//cout << "count " << count << " : " << iResult << endl;
+		if (iResult < 0) {
+			cout << "thread " << threadid << " file send error: " << WSAGetLastError() << endl;
+			//recallSocket(ClientSocket);
+			closesocket(ClientSocket);
+			return -1;
+		}	
+	}
+	fclose(fp);
 	finish = clock();
 	cout << "thread " << threadid << " send time: " << (double)(finish-start) << "ms" << endl;
 
@@ -230,12 +295,6 @@ int main() {
 		}
 	}
 
-	FILE* fp;
-	if ((fp = fopen(filename, "rb")) == NULL) {
-		cout << "open " << filename << " error" << endl;
-		return -1;
-	}
-	
 
 
 	/*	
@@ -371,6 +430,15 @@ int main() {
 	HANDLE* sThread = new HANDLE[ThreadNum];
 	LpParam* lpParam = new LpParam[ThreadNum];
 
+
+	/**
+	  * get file size
+	  */
+	long long filesize = getFileSize(filename);
+	cout << "filesize: " << filesize << endl;
+	long long blocksize = filesize / ThreadNum;
+	long long lastBlockSize = blocksize + (filesize % ThreadNum);
+
 	clock_t begin, finish;
 	for (int i = 1; i <= ThreadNum; i ++) {
 		ClientSocket = accept(ListenSocket, NULL, NULL);
@@ -398,12 +466,26 @@ int main() {
 		}
 		cout << "recv a connection from " << inet_ntoa(name.sin_addr) << ":" <<  ntohs(name.sin_port) << endl; 
 		*/
+
+		FILE* fp;
+		if ((fp = fopen(filename, "rb")) == NULL) {
+			cout << "open " << filename << " error" << endl;
+			return -1;
+		}
+	
+		cout << "fp = " << fp << endl;
 		lpParam[i-1].threadid = i;
 		lpParam[i-1].fp = fp;
 		lpParam[i-1].ClientSocket = ClientSocket;
 		lpParam[i-1].sndbuf_len = sndbuf_len;
 		lpParam[i-1].buflen = buflen;
 		lpParam[i-1].useNagle = useNagle;
+		lpParam[i-1].offset = (i-1)*blocksize;
+		if (i == ThreadNum) 
+			lpParam[i-1].sendlen = lastBlockSize;
+		else
+			lpParam[i-1].sendlen = blocksize;
+
 		//cout << "make sure: " << ((LpParam*)&(lpParam[i-1]))->ClientSocket << endl;
 		//cout << sndbuf_len << endl;
 		sThread[i-1] = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)SendThreadFunc, &(lpParam[i-1]), 0, NULL);
@@ -411,7 +493,7 @@ int main() {
 
 	WaitForMultipleObjects(ThreadNum, sThread, TRUE, INFINITE);
 	finish = clock();
-	cout << "FILE SEND TIME: " << (double)(finish-begin) << endl;
+	cout << "FILE SEND TIME: " << (double)(finish-begin) << "ms" << endl;
 
 	closesocket(ListenSocket);
 
@@ -423,7 +505,7 @@ int main() {
 	}
 
 	//recall the process resource
-	fclose(fp);
+	//fclose(fp);
 	delete [] sThread;
 	delete [] lpParam;
 	//closesocket(ClientSocket);
