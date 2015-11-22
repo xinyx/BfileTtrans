@@ -372,7 +372,6 @@ int main() {
 	LpParam* lpParam = new LpParam[ThreadNum];
 
 	clock_t begin, finish;
-	begin = clock();
 	for (int i = 1; i <= ThreadNum; i ++) {
 		ClientSocket = accept(ListenSocket, NULL, NULL);
 		if (ClientSocket == INVALID_SOCKET) {
@@ -382,7 +381,10 @@ int main() {
 			WSACleanup();
 			return -1;
 		}
-		cout << "accept " << (int)ClientSocket << endl;
+		//cout << "accept " << (int)ClientSocket << endl;
+		if (i == 1) {	//begin sending
+			begin = clock();
+		}
 		/*
 		int iResult;
 		struct sockaddr_in name;
@@ -402,14 +404,14 @@ int main() {
 		lpParam[i-1].sndbuf_len = sndbuf_len;
 		lpParam[i-1].buflen = buflen;
 		lpParam[i-1].useNagle = useNagle;
-		cout << "make sure: " << ((LpParam*)&(lpParam[i-1]))->ClientSocket << endl;
-		cout << sndbuf_len << endl;
+		//cout << "make sure: " << ((LpParam*)&(lpParam[i-1]))->ClientSocket << endl;
+		//cout << sndbuf_len << endl;
 		sThread[i-1] = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)SendThreadFunc, &(lpParam[i-1]), 0, NULL);
 	}
 
 	WaitForMultipleObjects(ThreadNum, sThread, TRUE, INFINITE);
 	finish = clock();
-	cout << "FILE TRANS TIME: " << (double)(finish-begin) << endl;
+	cout << "FILE SEND TIME: " << (double)(finish-begin) << endl;
 
 	closesocket(ListenSocket);
 

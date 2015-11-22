@@ -14,6 +14,113 @@ using namespace std;
 
 
 char recvBUF[DEFAULT_BUFLEN];
+int ThreadNum;
+
+struct LpParam {	//RecvThreadFunc param struct
+	int threadid;
+	FILE* fp;
+	SOCKET ConnectSocket;
+	int buflen;		//process recvbuf_len
+	int recvbuf_len;//TCP recvbuf_len
+	char useNagle;
+
+};
+
+DWORD WINAPI RecvThreadFunc(LPWORD lpParam) {
+	SOCKET ConnectSocket = ((LpParam*)lpParam)->ConnectSocket;
+	FILE* fp = ((LpParam*)lpParam)->fp;
+	int threadid = ((LpParam*)lpParam)->threadid;
+	int recvbuf_len = ((LpParam*)lpParam)->recvbuf_len;
+	int buflen = ((LpParam*)lpParam)->buflen;
+	int useNagle = ((LpParam*)lpParam)->useNagle;
+
+	int iResult;
+	struct sockaddr_in name;
+	int namelen = sizeof(name);
+	iResult = getpeername(ConnectSocket, (sockaddr*)&name, &namelen);
+	if (iResult < 0) {
+		cout << "getpeername error: " << WSAGetLastError() << endl;
+		closesocket(ConnectSocket);
+		return -1;
+	}
+	cout << "thread " << threadid << " connect to " << inet_ntoa(name.sin_addr) << ":" << ntohs(name.sin_port) << endl; 
+
+	/**
+	 *modify recvbuf len
+	 */
+	int intlen = sizeof(recvbuf_len);
+	if (setsockopt(ConnectSocket, SOL_SOCKET, SO_RCVBUF, (const char *)&recvbuf_len, intlen) < 0) {
+		cout << "thread " << threadid << " setsocketopt error\n";
+		closesocket(ConnectSocket);
+		WSACleanup();
+		return -1;
+	}
+
+	if (getsockopt(ConnectSocket, SOL_SOCKET, SO_RCVBUF, (char *)&recvbuf_len, &intlen) < 0) {
+		cout << "thread " << threadid << " getsocketopt error\n";
+		closesocket(ConnectSocket);
+		WSACleanup();
+		return -1;
+	}
+	cout << "thread " << threadid << " final TCP recvbuf_len = " << recvbuf_len << endl;
+
+	/**
+	 * NODELAY(don't use Nagle)
+	 * Because client have no data to send, so Nagle is useless and time-consuming
+	 */
+	if (useNagle == 'n') {
+		int on = 1, lenon = sizeof(on);
+		if (setsockopt(ConnectSocket, IPPROTO_TCP, TCP_NODELAY, (const char*)&on, lenon) < 0) {
+			cout << "thread " << threadid << " setsocketopt(NODELAY) error" << endl;
+			closesocket(ConnectSocket);
+			WSACleanup();
+			return -1;
+		}
+	}
+
+	/**
+	 *recv
+	 */
+	//int buflen = DEFAULT_BUFLEN;		choice.1
+	//int buflen = recvbuf_len;			choice.2 make process_buflen == TCP_buflen
+	//choice.3 manually assign
+
+	clock_t start, finish;
+	int count = 0;
+	start = clock();
+	while (true) {
+		iResult = recv(ConnectSocket, recvBUF, buflen, 0);
+		//count ++;
+		//cout << "count " << count << " : " << iResult << endl;
+		if (iResult == 0) {
+			cout << "thread " << threadid <<  " recv OK" << endl;
+			break;
+		} else if (iResult < 0) {
+			cout << "thread " << threadid << " recv error: " << WSAGetLastError() << endl;
+			//recallSocket(ConnectSocket);
+			closesocket(ConnectSocket);
+			//WSACleanup();
+			return -1;
+		}
+		fwrite(recvBUF, sizeof(char), iResult, fp);
+	}
+	//fclose(fp);
+	finish = clock();
+	cout << "thread " << threadid << " recv time: " << (double)(finish-start) << "ms" << endl;
+
+	/**
+	  *don't send, only recv
+	  */
+	iResult = shutdown(ConnectSocket, SD_SEND);
+	if (iResult < 0) {
+		cout << "thread " << threadid << " shutdown error: " << WSAGetLastError() << endl;
+		//recallSocket(ConnectSocket);
+		closesocket(ConnectSocket);
+		//WSACleanup();
+		return -1;
+	}
+
+}
 
 /*
 int recallSocket(SOCKET socket) {
@@ -88,39 +195,8 @@ int main() {
 		}
 	}
 
-	/**
-	  *match a addrinfo
-	  */
-	for(ptr = result; ptr != NULL; ptr = ptr->ai_next)
-	{
-		// create a socket for client
-		ConnectSocket = socket(ptr->ai_family, ptr->ai_socktype, ptr->ai_protocol);
-		if(ConnectSocket == INVALID_SOCKET)
-		{
-			printf("client socket failed with error %ld\n", WSAGetLastError());
-			WSACleanup();
-			return -1;
-		}
 
-		// connect to server
-		iResult = connect(ConnectSocket, ptr->ai_addr, (int)ptr->ai_addrlen);
-		if(iResult == SOCKET_ERROR)
-		{
-			closesocket(ConnectSocket);
-			ConnectSocket = INVALID_SOCKET;// if fail try next address returned by getaddrinfo
-			continue;
-		}
-		break;
-	}
-
-	freeaddrinfo(result);
-	if(ConnectSocket == INVALID_SOCKET)
-	{
-		printf("client unable to connect to server\n");
-		WSACleanup();
-		return -1;
-	}
-
+	/*
 	struct sockaddr_in name;
 	int namelen = sizeof(name);
 	iResult = getpeername(ConnectSocket, (sockaddr*)&name, &namelen);
@@ -129,10 +205,12 @@ int main() {
 		return -1;
 	}
 	cout << "connect to " << inet_ntoa(name.sin_addr) << ":" << ntohs(name.sin_port) << endl; 
+	*/
 
 	/**
-	  *modify recvbuf len
-	  */
+	 *modify recvbuf len
+	 */
+	/*
 	int recvbuf_len, intlen = sizeof(recvbuf_len);
 	if (getsockopt(ConnectSocket, SOL_SOCKET, SO_RCVBUF, (char *)&recvbuf_len, &intlen) < 0) {
 		cout << "getsocketopt error\n";
@@ -141,9 +219,13 @@ int main() {
 		return -1;
 	}
 	cout << "initial TCP recvbuf_len = " << recvbuf_len << endl;
+	*/
+
 	cout << "input TCP recvbuf_len(<= 8M): ";
+	int recvbuf_len;
 	//recvbuf_len = RECVBUF_LEN;
 	cin >> recvbuf_len;
+	/*
 	if (setsockopt(ConnectSocket, SOL_SOCKET, SO_RCVBUF, (const char *)&recvbuf_len, intlen) < 0) {
 		cout << "setsocketopt error\n";
 		closesocket(ConnectSocket);
@@ -158,14 +240,16 @@ int main() {
 		return -1;
 	}
 	cout << "final TCP recvbuf_len = " << recvbuf_len << endl;
+	*/
 
 	/**
-	  * NODELAY(don't use Nagle)
-	  * Because client have no data to send, so Nagle is useless and time-consuming
-	  */
+	 * NODELAY(don't use Nagle)
+	 * Because client have no data to send, so Nagle is useless and time-consuming
+	 */
 	cout << "use Nagle?(y/n): " << endl;
-	char tmp;
-	cin >> tmp;
+	char useNagle;
+	cin >> useNagle;
+	/*
 	if (tmp == 'n') {
 		int on = 1, lenon = sizeof(on);
 		if (setsockopt(ConnectSocket, IPPROTO_TCP, TCP_NODELAY, (const char*)&on, lenon) < 0) {
@@ -175,12 +259,12 @@ int main() {
 			return -1;
 		}
 	}
+	*/
 
-	
 
 	/**
-	  *recv
-	  */
+	 *recv
+	 */
 	//int buflen = DEFAULT_BUFLEN;		choice.1
 	//int buflen = recvbuf_len;			choice.2 make process_buflen == TCP_buflen
 	cout << "input process recvbuf_len: ";
@@ -193,7 +277,7 @@ int main() {
 		return -1;
 	}
 
-
+	/*
 	clock_t start, finish;
 	int count = 0;
 	start = clock();
@@ -216,10 +300,11 @@ int main() {
 	fclose(fp);
 	finish = clock();
 	cout << "recv time: " << (double)(finish-start) << "ms" << endl;
-
+	*/
 	/**
 	  *don't send, only recv
 	  */
+	/*
 	iResult = shutdown(ConnectSocket, SD_SEND);
 	if (iResult < 0) {
 		cout << "shutdown error: " << WSAGetLastError() << endl;
@@ -228,9 +313,80 @@ int main() {
 		WSACleanup();
 		return -1;
 	}
+	*/
+
+	/**
+	  * multi connect, and multi recv
+	  */
+	cout << "thread num: ";
+	cin >> ThreadNum;
+
+	HANDLE* rThread = new HANDLE[ThreadNum];
+	LpParam* lpParam = new LpParam[ThreadNum];
+
+	clock_t begin, finish;
+	for (int i = 1; i <= ThreadNum; i ++) {
+		/**
+		 *match a addrinfo
+		 */
+		for(ptr = result; ptr != NULL; ptr = ptr->ai_next)
+		{
+			// create a socket for client
+			ConnectSocket = socket(ptr->ai_family, ptr->ai_socktype, ptr->ai_protocol);
+			if(ConnectSocket == INVALID_SOCKET)
+			{
+				cout << "thread " << i << " client socket failed: " <<  WSAGetLastError() << endl;
+				WSACleanup();
+				return -1;
+			}
+
+			// connect to server
+			iResult = connect(ConnectSocket, ptr->ai_addr, (int)ptr->ai_addrlen);
+			if(iResult == SOCKET_ERROR)
+			{
+				closesocket(ConnectSocket);
+				ConnectSocket = INVALID_SOCKET;// if fail try next address returned by getaddrinfo
+				continue;
+			}
+			break;
+		}
+
+		//freeaddrinfo(result);
+		if(ConnectSocket == INVALID_SOCKET)
+		{
+			cout << "thread " << i << " client unable to connect to server: " << WSACleanup() << endl;
+			WSACleanup();
+			return -1;
+		}
+
+		/**
+		  *recv
+		  */
+		if (i == 1) {	//begin recving
+			begin = clock();
+		}
+		
+		lpParam[i-1].threadid = i;
+		lpParam[i-1].fp = fp;
+		lpParam[i-1].ConnectSocket = ConnectSocket;
+		lpParam[i-1].recvbuf_len = recvbuf_len;
+		lpParam[i-1].buflen = buflen;
+		lpParam[i-1].useNagle = useNagle;
+		rThread[i-1] = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)RecvThreadFunc, &(lpParam[i-1]), 0, NULL);
+
+	}
+
+	WaitForMultipleObjects(ThreadNum, rThread, TRUE, INFINITE);
+	finish = clock();
+	cout << "FILE RECV TIME: " << (double)(finish-begin) << endl;
+
+	freeaddrinfo(result);
+	fclose(fp);
+	delete [] rThread;
+	delete [] lpParam;
 
 	//recallSocket(ConnectSocket);
-	closesocket(ConnectSocket);
+	//closesocket(ConnectSocket);
 	WSACleanup();
 	system("PAUSE");
 	return 0;
