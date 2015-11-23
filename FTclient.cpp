@@ -16,9 +16,12 @@ using namespace std;
 char recvBUF[DEFAULT_BUFLEN];
 int ThreadNum;
 
+long long dataLen = 0;
+
 struct LpParam {	//RecvThreadFunc param struct
 	int threadid;
-	FILE* fp;
+	//FILE* fp;
+	unsigned char* mapFileAddr;
 	SOCKET ConnectSocket;
 	int buflen;		//process recvbuf_len
 	int recvbuf_len;//TCP recvbuf_len
@@ -29,7 +32,8 @@ struct LpParam {	//RecvThreadFunc param struct
 
 DWORD WINAPI RecvThreadFunc(LPWORD lpParam) {
 	SOCKET ConnectSocket = ((LpParam*)lpParam)->ConnectSocket;
-	FILE* fp = ((LpParam*)lpParam)->fp;
+	//FILE* fp = ((LpParam*)lpParam)->fp;
+	unsigned char* mapFileAddr = ((LpParam*)lpParam)->mapFileAddr;
 	int threadid = ((LpParam*)lpParam)->threadid;
 	int recvbuf_len = ((LpParam*)lpParam)->recvbuf_len;
 	int buflen = ((LpParam*)lpParam)->buflen;
@@ -101,9 +105,14 @@ DWORD WINAPI RecvThreadFunc(LPWORD lpParam) {
 	}
 
 	cout << "thread " << threadid << " recv offset = " << offset << endl;
-	_fseeki64(fp, offset, SEEK_SET);
+	if (threadid == ThreadNum) {
+		dataLen = offset;
+	}
+	//_fseeki64(fp, offset, SEEK_SET);
+	unsigned char* datap = mapFileAddr + offset;
 	while (true) {
-		iResult = recv(ConnectSocket, recvBUF, buflen, 0);
+		//iResult = recv(ConnectSocket, recvBUF, buflen, 0);
+		iResult = recv(ConnectSocket, (char*)datap, buflen, 0);
 		//count ++;
 		//cout << "count " << count << " : " << iResult << endl;
 		if (iResult == 0) {
@@ -116,9 +125,12 @@ DWORD WINAPI RecvThreadFunc(LPWORD lpParam) {
 			//WSACleanup();
 			return -1;
 		}
-		fwrite(recvBUF, sizeof(char), iResult, fp);
+		//fwrite(recvBUF, sizeof(char), iResult, fp);
+		if (threadid == ThreadNum) {
+			dataLen += iResult;
+		}
 	}
-	fclose(fp);
+	//fclose(fp);
 	finish = clock();
 	cout << "thread " << threadid << " recv time: " << (double)(finish-start) << "ms" << endl;
 
@@ -174,26 +186,6 @@ int main() {
 		return -1;
 	}
 
-	/*
-	//create connect socket
-	ConnectSocket =  socket(result->ai_family, result->ai_socktype, result->ai_protocol);
-	if (ConnectSocket < 0) {
-		cout << "create connect socket error: " << WSAGetLastError() << endl;
-		freeaddrinfo(result);
-		WSACleanup();
-		return -1;
-	}
-
-	//connect
-	iResult = connect(ConnectSocket, result->ai_addr, (int)result->ai_addrlen);
-	if (iResult < 0) {
-		cout << "connect error: " << iResult << endl;
-		freeaddrinfo(result);
-		WSACleanup();
-		return -1;
-	}
-	freeaddrinfo(result);
-	*/
 
 	/**
 	  *file to recv
@@ -209,52 +201,10 @@ int main() {
 		}
 	}
 
-
-	/*
-	struct sockaddr_in name;
-	int namelen = sizeof(name);
-	iResult = getpeername(ConnectSocket, (sockaddr*)&name, &namelen);
-	if (iResult < 0) {
-		cout << "getpeername error: " << WSAGetLastError() << endl;
-		return -1;
-	}
-	cout << "connect to " << inet_ntoa(name.sin_addr) << ":" << ntohs(name.sin_port) << endl; 
-	*/
-
-	/**
-	 *modify recvbuf len
-	 */
-	/*
-	int recvbuf_len, intlen = sizeof(recvbuf_len);
-	if (getsockopt(ConnectSocket, SOL_SOCKET, SO_RCVBUF, (char *)&recvbuf_len, &intlen) < 0) {
-		cout << "getsocketopt error\n";
-		closesocket(ConnectSocket);
-		WSACleanup();
-		return -1;
-	}
-	cout << "initial TCP recvbuf_len = " << recvbuf_len << endl;
-	*/
-
 	cout << "input TCP recvbuf_len(<= 8M): ";
 	int recvbuf_len;
 	//recvbuf_len = RECVBUF_LEN;
 	cin >> recvbuf_len;
-	/*
-	if (setsockopt(ConnectSocket, SOL_SOCKET, SO_RCVBUF, (const char *)&recvbuf_len, intlen) < 0) {
-		cout << "setsocketopt error\n";
-		closesocket(ConnectSocket);
-		WSACleanup();
-		return -1;
-	}
-
-	if (getsockopt(ConnectSocket, SOL_SOCKET, SO_RCVBUF, (char *)&recvbuf_len, &intlen) < 0) {
-		cout << "getsocketopt error\n";
-		closesocket(ConnectSocket);
-		WSACleanup();
-		return -1;
-	}
-	cout << "final TCP recvbuf_len = " << recvbuf_len << endl;
-	*/
 
 	/**
 	 * NODELAY(don't use Nagle)
@@ -263,18 +213,6 @@ int main() {
 	cout << "use Nagle?(y/n): " << endl;
 	char useNagle;
 	cin >> useNagle;
-	/*
-	if (tmp == 'n') {
-		int on = 1, lenon = sizeof(on);
-		if (setsockopt(ConnectSocket, IPPROTO_TCP, TCP_NODELAY, (const char*)&on, lenon) < 0) {
-			cout << "setsocketopt(NODELAY) error" << endl;
-			closesocket(ConnectSocket);
-			WSACleanup();
-			return -1;
-		}
-	}
-	*/
-
 
 	/**
 	 *recv
@@ -286,44 +224,49 @@ int main() {
 	cin >> buflen;						//choice.3 manually assign
 
 
-	/*
-	clock_t start, finish;
-	int count = 0;
-	start = clock();
-	while (true) {
-		iResult = recv(ConnectSocket, recvBUF, buflen, 0);
-		//count ++;
-		//cout << "count " << count << " : " << iResult << endl;
-		if (iResult == 0) {
-			cout << "recv OK" << endl;
-			break;
-		} else if (iResult < 0) {
-			cout << "recv error: " << WSAGetLastError() << endl;
-			//recallSocket(ConnectSocket);
-			closesocket(ConnectSocket);
-			WSACleanup();
-			return -1;
-		}
-		fwrite(recvBUF, sizeof(char), iResult, fp);
-	}
-	fclose(fp);
-	finish = clock();
-	cout << "recv time: " << (double)(finish-start) << "ms" << endl;
-	*/
 	/**
-	  *don't send, only recv
+	  * mapping file
 	  */
-	/*
-	iResult = shutdown(ConnectSocket, SD_SEND);
-	if (iResult < 0) {
-		cout << "shutdown error: " << WSAGetLastError() << endl;
-		//recallSocket(ConnectSocket);
-		closesocket(ConnectSocket);
-		WSACleanup();
-		return -1;
-	}
-	*/
+	HANDLE hFile = CreateFile(
+			filename,
+			GENERIC_WRITE,
+			FILE_SHARE_WRITE,
+			NULL,       
+			CREATE_NEW,
+			FILE_ATTRIBUTE_NORMAL,     
+			0);    
 
+	//返回值size_high,size_low分别表示文件大小的高32位/低32位  
+	DWORD size_low,size_high;  
+	long long filesize = 7000000000;	//~7G
+	size_low = filesize & 0xffffffff;
+	size_high = (filesize >> 32);
+	cout << "low = " << size_low << " high = " << size_high << endl;
+
+	//创建文件的内存映射文件。     
+	HANDLE hMapFile=CreateFileMapping(    
+			hFile,       
+			NULL,     
+			PAGE_READWRITE,  //对映射文件进行读写  
+			size_high,      
+			size_low,   //这两个参数共64位，所以支持的最大文件长度为16EB  
+			NULL);
+	if(hMapFile==INVALID_HANDLE_VALUE)     
+	{     
+		cout << "Can't create file mapping " << GetLastError() << endl;
+		CloseHandle(hFile);  
+		WSACleanup();
+		return -1;     
+	}    
+
+	//把文件数据映射到进程的地址空间  
+	void* pvFile=MapViewOfFile(  
+			hMapFile,   
+			FILE_MAP_WRITE,
+			0,  
+			0,  
+			filesize);    
+	unsigned char *mapFileAddr = (unsigned char*)pvFile; 
 	/**
 	  * multi connect, and multi recv
 	  */
@@ -376,14 +319,17 @@ int main() {
 		}
 		
 
+		/*
 		FILE* fp;
 		if ((fp = fopen(filename, "wb")) == NULL) {
 			cout << "open " << filename << " error" << endl;
 			return -1;
 		}
 		cout << "fp = " << fp << endl;
+		*/
 		lpParam[i-1].threadid = i;
-		lpParam[i-1].fp = fp;
+		//lpParam[i-1].fp = fp;
+		lpParam[i-1].mapFileAddr = mapFileAddr;
 		lpParam[i-1].ConnectSocket = ConnectSocket;
 		lpParam[i-1].recvbuf_len = recvbuf_len;
 		lpParam[i-1].buflen = buflen;
@@ -403,6 +349,29 @@ int main() {
 
 	//recallSocket(ConnectSocket);
 	//closesocket(ConnectSocket);
+
+	/**
+	  * write to file
+	  */
+	/*
+	int chunk = 0xfffff;
+	long long dataLast = dataLen;
+	unsigned char* p = mapFileAddr;
+	int writeNum;
+	while (dataLast > chunk) {
+		if (!WriteFile(hFile, p, chunk, (LPDWORD)&writeNum, NULL)) {
+			cout << "file write failed" << endl;
+			break;
+		}
+		dataLast -= writeNum;
+		p += writeNum;
+	}
+	if (!WriteFile(hFile, p, dataLast, (LPDWORD)&writeNum, NULL)) {
+		cout << "file last write failed" << endl;
+	}
+	*/
+	UnmapViewOfFile(pvFile); //撤销映射  
+    CloseHandle(hFile); //关闭文件  
 	WSACleanup();
 	system("PAUSE");
 	return 0;

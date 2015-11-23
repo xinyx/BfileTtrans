@@ -20,7 +20,8 @@ int ThreadNum;
 
 struct LpParam {	//SendThreadFunc param struct
 	int threadid;
-	FILE* fp;
+	//FILE* fp;
+	unsigned char* mapFileAddr;
 	SOCKET ClientSocket;
 	int buflen;		//process sndbuf_len
 	int sndbuf_len;	//TCP sndbuf_len
@@ -62,7 +63,8 @@ long long getFileSize(const char* path) {
 
 DWORD WINAPI SendThreadFunc(LPWORD lpParam) {
 	SOCKET ClientSocket = ((LpParam*)lpParam)->ClientSocket;
-	FILE* fp = ((LpParam*)lpParam)->fp;
+	//FILE* fp = ((LpParam*)lpParam)->fp;
+	unsigned char* mapFileAddr = ((LpParam*)lpParam)->mapFileAddr;
 	int threadid = ((LpParam*)lpParam)->threadid;
 	int sndbuf_len = ((LpParam*)lpParam)->sndbuf_len;
 	int buflen = ((LpParam*)lpParam)->buflen;
@@ -125,7 +127,8 @@ DWORD WINAPI SendThreadFunc(LPWORD lpParam) {
 	//int buflen = sndbuf_len;		choice.2 make process_buflen == TCP_buflen
 	//choice.3 manually assign
 
-	_fseeki64(fp, offset, SEEK_SET);
+	//_fseeki64(fp, offset, SEEK_SET);
+	unsigned char* datap = mapFileAddr + offset;
 	int len;
 	clock_t start, finish;
 	int count = 0;
@@ -143,10 +146,11 @@ DWORD WINAPI SendThreadFunc(LPWORD lpParam) {
 	cout << "send offset = " << (long long)offset << endl;
 
 	//send file body
-	while ((!feof(fp)) && (dataNotSend>=buflen)){
-		len = fread(sendBUF, sizeof(char), buflen, fp);
+	while (dataNotSend>=buflen){
+		//len = fread(sendBUF, sizeof(char), buflen, fp);
 		//cout << sendBUF << endl;
-		iResult = send(ClientSocket, sendBUF, len, 0);
+		//iResult = send(ClientSocket, sendBUF, len, 0);
+		iResult = send(ClientSocket, (const char*)datap, buflen, 0);
 		//count ++;
 		//cout << "count " << count << " : " << iResult << endl;
 		if (iResult < 0) {
@@ -156,11 +160,13 @@ DWORD WINAPI SendThreadFunc(LPWORD lpParam) {
 			return -1;
 		}
 
-		dataNotSend -= len;
+		datap += iResult;
+		dataNotSend -= iResult;
 	} 
 	if (dataNotSend > 0) {
-		len = fread(sendBUF, sizeof(char), dataNotSend, fp);
-		iResult = send(ClientSocket, sendBUF, len, 0);
+		//len = fread(sendBUF, sizeof(char), dataNotSend, fp);
+		//iResult = send(ClientSocket, sendBUF, len, 0);
+		iResult = send(ClientSocket, (const char *)datap, dataNotSend, 0);
 		//count ++;
 		//cout << "count " << count << " : " << iResult << endl;
 		if (iResult < 0) {
@@ -170,7 +176,7 @@ DWORD WINAPI SendThreadFunc(LPWORD lpParam) {
 			return -1;
 		}	
 	}
-	fclose(fp);
+	//fclose(fp);
 	finish = clock();
 	cout << "thread " << threadid << " send time: " << (double)(finish-start) << "ms" << endl;
 
@@ -297,134 +303,33 @@ int main() {
 
 
 
-	/*	
-	struct sockaddr_in name;
-	int namelen = sizeof(name);
-	iResult = getpeername(ClientSocket, (sockaddr*)&name, &namelen);
-	if (iResult < 0) {
-		cout << "getpeername error: " << WSAGetLastError() << endl;
-		return -1;
-	}
-	cout << "recv a connection from " << inet_ntoa(name.sin_addr) << ":" <<  ntohs(name.sin_port) << endl;
-	
-	//ListenSocket not needed
-	closesocket(ListenSocket);
-	*/
-
 	/**
-	  *modify sndbuf len
-	  */
+	 *modify sndbuf len
+	 */
 	int sndbuf_len;//, intlen = sizeof(sndbuf_len);
-	/*
-	if (getsockopt(ClientSocket, SOL_SOCKET, SO_SNDBUF, (char *)&sndbuf_len, &intlen) < 0) {
-		cout << "getsocketopt error\n";
-		closesocket(ClientSocket);
-		WSACleanup();
-		return -1;
-	}
-	cout << "initial TCP sndbuf_len = " << sndbuf_len << endl;
-	*/
 	cout << "input TCP sndbuf_len(<=8M): ";
 	//sndbuf_len = SNDBUF_LEN;
 	cin >> sndbuf_len;
-	/*
-	if (setsockopt(ClientSocket, SOL_SOCKET, SO_SNDBUF, (const char *)&sndbuf_len, intlen) < 0) {
-		cout << "setsocketopt error\n";
-		closesocket(ClientSocket);
-		WSACleanup();
-		return -1;
-	}
-
-	if (getsockopt(ClientSocket, SOL_SOCKET, SO_SNDBUF, (char *)&sndbuf_len, &intlen) < 0) {
-		cout << "getsocketopt error\n";
-		closesocket(ClientSocket);
-		WSACleanup();
-		return -1;
-	}
-	cout << "final TCP sndbuf_len = " << sndbuf_len << endl;
-	*/
 
 	/**
-	  * NODELAY(don't use Nagle)
-	  * Because client have no data to send, so Nagle is useless and time-consuming
-	  */
+	 * NODELAY(don't use Nagle)
+	 * Because client have no data to send, so Nagle is useless and time-consuming
+	 */
 	cout << "use Nagle?(y/n): " << endl;
 	char useNagle;
 	cin >> useNagle;
-	/*
-	if (tmp == 'n') {
-		int on = 1, lenon = sizeof(on);
-		if (setsockopt(ClientSocket, IPPROTO_TCP, TCP_NODELAY, (const char*)&on, lenon) < 0) {
-			cout << "setsocketopt(NODELAY) error" << endl;
-			closesocket(ClientSocket);
-			WSACleanup();
-			return -1;
-
-		}
-	}
-	*/
 	/**
-	  *send file
-	  */
+	 *send file
+	 */
 	//int buflen = DEFAULT_BUFLEN;	choice.1
 	//int buflen = sndbuf_len;		choice.2 make process_buflen == TCP_buflen
 	cout << "input process sndbuf_len: ";
 	int buflen;
 	cin >> buflen;					//choice.3 manually assign
-	/*int len;
-	clock_t start, finish;
-	int count = 0;
-	start = clock();
-	do {
-		len = fread(sendBUF, sizeof(char), buflen, fp);
-		//cout << sendBUF << endl;
-		iResult = send(ClientSocket, sendBUF, len, 0);
-		//count ++;
-		//cout << "count " << count << " : " << iResult << endl;
-		if (iResult < 0) {
-			cout << "file send error: " << WSAGetLastError() << endl;
-			//recallSocket(ClientSocket);
-			closesocket(ClientSocket);
-			WSACleanup();
-			return -1;
-		}
-	} while (!feof(fp));
-	fclose(fp);
-	*/
-	/*
-	finish = clock();
-	cout << "send time: " << (double)(finish-start) << "ms" << endl;
-	*/
-	/**
-	  *don't send, only recv
-	  */
-	/*
-	iResult = shutdown(ClientSocket, SD_SEND);
-	if (iResult < 0) {
-		cout << "shutdown socket error: " << WSAGetLastError() << endl;
-		//recallSocket(ClientSocket);
-		closesocket(ClientSocket);
-		WSACleanup();
-		return -1;
-	}
-	*/
-	/**
-	  *wait the ack of the last packet, make sure all of data is done.
-	  */
-	/*
-	iResult = recv(ClientSocket, sendBUF, len, 0);
-	if (iResult == 0) {
-		cout << "the file has reached completely!" << endl;
-	} else if (iResult > 0) {
-		cout << "this will not occur!" << endl;
-	} else {
-		cout << "the last packet has not reached!" << endl;
-	}
-	*/
 
 	/**
-	  * multi accept, and multi send
-	  */
+	 * multi accept, and multi send
+	 */
 	cout << "thread num: ";
 	cin >> ThreadNum;
 	HANDLE* sThread = new HANDLE[ThreadNum];
@@ -432,10 +337,56 @@ int main() {
 
 
 	/**
-	  * get file size
-	  */
+	 * get file size
+	 */
 	long long filesize = getFileSize(filename);
 	cout << "filesize: " << filesize << endl;
+	/**
+	  * mapping file
+	  */
+	HANDLE hFile = CreateFile(
+			filename,
+			GENERIC_READ,
+			FILE_SHARE_READ,
+			NULL,       
+			OPEN_EXISTING,  //打开已存在文件  
+			FILE_ATTRIBUTE_NORMAL,     
+			0);    
+
+	//返回值size_high,size_low分别表示文件大小的高32位/低32位  
+	DWORD size_low,size_high;  
+	size_low = filesize & 0xffffffff;
+	size_high = (filesize >> 32);
+	cout << "low = " << size_low << " high = " << size_high << endl;
+
+	//创建文件的内存映射文件。     
+	HANDLE hMapFile=CreateFileMapping(    
+			hFile,       
+			NULL,     
+			PAGE_READONLY,  //对映射文件进行读写  
+			size_high,      
+			size_low,   //这两个参数共64位，所以支持的最大文件长度为16EB  
+			NULL);
+	if(hMapFile==INVALID_HANDLE_VALUE)     
+	{     
+		cout << "Can't create file mapping " << GetLastError() << endl;
+		CloseHandle(hFile);  
+		WSACleanup();
+		return -1;     
+	}    
+
+	//把文件数据映射到进程的地址空间  
+	void* pvFile=MapViewOfFile(  
+			hMapFile,   
+			FILE_MAP_READ,
+			0,  	//high file offset
+			0,  	//low file offset
+			filesize);    //Bytes to map
+	cout << "size_t = : " << sizeof(SIZE_T) << endl;
+
+	unsigned char *mapFileAddr = (unsigned char*)pvFile; 
+	//cout << "map address = " << mapFileAddr << endl;
+
 	long long blocksize = filesize / ThreadNum;
 	long long lastBlockSize = blocksize + (filesize % ThreadNum);
 
@@ -453,29 +404,19 @@ int main() {
 		if (i == 1) {	//begin sending
 			begin = clock();
 		}
-		/*
-		int iResult;
-		struct sockaddr_in name;
-		int namelen = sizeof(name);
-		iResult = getpeername(ClientSocket, (sockaddr*)&name, &namelen);
-		if (iResult < 0) {
-			cout << "getpeername error: " << WSAGetLastError() << endl;
-			closesocket(ClientSocket);
-			WSACleanup();
-			return -1;
-		}
-		cout << "recv a connection from " << inet_ntoa(name.sin_addr) << ":" <<  ntohs(name.sin_port) << endl; 
-		*/
 
+		/*
 		FILE* fp;
 		if ((fp = fopen(filename, "rb")) == NULL) {
 			cout << "open " << filename << " error" << endl;
 			return -1;
 		}
-	
+
 		cout << "fp = " << fp << endl;
+		*/
 		lpParam[i-1].threadid = i;
-		lpParam[i-1].fp = fp;
+		//lpParam[i-1].fp = fp;
+		lpParam[i-1].mapFileAddr = mapFileAddr;
 		lpParam[i-1].ClientSocket = ClientSocket;
 		lpParam[i-1].sndbuf_len = sndbuf_len;
 		lpParam[i-1].buflen = buflen;
@@ -486,12 +427,11 @@ int main() {
 		else
 			lpParam[i-1].sendlen = blocksize;
 
-		//cout << "make sure: " << ((LpParam*)&(lpParam[i-1]))->ClientSocket << endl;
-		//cout << sndbuf_len << endl;
 		sThread[i-1] = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)SendThreadFunc, &(lpParam[i-1]), 0, NULL);
 	}
 
 	WaitForMultipleObjects(ThreadNum, sThread, TRUE, INFINITE);
+
 	finish = clock();
 	cout << "FILE SEND TIME: " << (double)(finish-begin) << "ms" << endl;
 
@@ -509,6 +449,9 @@ int main() {
 	delete [] sThread;
 	delete [] lpParam;
 	//closesocket(ClientSocket);
+	UnmapViewOfFile(pvFile); //撤销映射  
+    CloseHandle(hFile); //关闭文件  
+
 	WSACleanup();
 
 	system("PAUSE");
